@@ -1,13 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Polyline
-} from "react-leaflet";
+import "leaflet-rotatedmarker";
+import { MapContainer, TileLayer, Marker, Polyline } from "react-leaflet";
 
 delete L.Icon.Default.prototype._getIconUrl;
 
@@ -27,49 +23,102 @@ export default function MapView({
 }) {
 
   const [position, setPosition] = useState(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
 
-  const getZoneColor = (risk) => {
-    if (risk === "high") return "red";
-    if (risk === "moderate") return "orange";
-    return "green";
+  const lastPosition = useRef(null);
+
+  /* --------------------------
+     Calculate direction angle
+  -------------------------- */
+
+  const getHeading = (lat1, lon1, lat2, lon2) => {
+
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+
+    const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+
+    const x =
+      Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+      Math.sin(lat1 * Math.PI / 180) *
+      Math.cos(lat2 * Math.PI / 180) *
+      Math.cos(dLon);
+
+    const brng = Math.atan2(y, x);
+
+    return (brng * 180 / Math.PI + 360) % 360;
+
   };
 
-  // Get user location
+  /* --------------------------
+     Real-time location tracking
+  -------------------------- */
+
   useEffect(() => {
 
-    navigator.geolocation.getCurrentPosition(
+    const watch = navigator.geolocation.watchPosition(
+
       (pos) => {
 
-        const location = [
-          pos.coords.latitude,
-          pos.coords.longitude
-        ];
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
 
-        setPosition(location);
-        setCurrentLocation(location);
+        const newPos = [lat, lon];
+
+        setPosition(newPos);
+        setCurrentLocation(newPos);
+
+        /* camera follow */
+        if (mapRef.current) {
+          mapRef.current.setView(newPos, 17);
+        }
+
+        /* rotate marker */
+        if (markerRef.current && lastPosition.current) {
+
+          const heading = getHeading(
+            lastPosition.current[0],
+            lastPosition.current[1],
+            lat,
+            lon
+          );
+
+          markerRef.current.setRotationAngle(heading);
+
+        }
+
+        lastPosition.current = newPos;
 
       },
-      (err) => console.error("Location error:", err)
+
+      (err) => console.log("GPS error", err),
+
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 5000
+      }
+
     );
+
+    return () => navigator.geolocation.clearWatch(watch);
 
   }, [setCurrentLocation]);
 
-
   if (!position) {
-
     return (
       <div className="flex items-center justify-center h-full">
         Loading Map...
       </div>
     );
-
   }
 
   return (
 
     <MapContainer
       center={position}
-      zoom={15}
+      zoom={17}
+      whenCreated={(map) => (mapRef.current = map)}
       style={{ width: "100%", height: "100%" }}
     >
 
@@ -78,32 +127,33 @@ export default function MapView({
         attribution="© OpenStreetMap contributors"
       />
 
-      {/* USER LOCATION */}
-      <Marker position={position} />
+      {/* User Navigation Marker */}
+      <Marker
+        position={position}
+        ref={markerRef}
+        rotationAngle={0}
+        rotationOrigin="center"
+      />
 
-      {/* DEFAULT ROUTE */}
-      {selectedRoute.length > 1 && segments.length === 0 && (
+      {/* Main Route */}
+      {selectedRoute.length > 1 && (
 
         <Polyline
           positions={selectedRoute}
-          pathOptions={{
-            color: "blue",
-            weight: 5
-          }}
+          pathOptions={{ color: "blue", weight: 6 }}
         />
 
       )}
 
-      {/* SEGMENT BASED ROUTE */}
+      {/* Colored Risk Segments */}
+
       {segments.map((seg, i) => {
 
         let color = "green";
 
-        if (seg.risk > 0.7) {
-          color = "red";
-        } else if (seg.risk > 0.4) {
-          color = "yellow";
-        }
+        if (seg.risk > 0.7) color = "red";
+        else if (seg.risk > 0.4) color = "orange";
+        else color = "green";
 
         return (
 
@@ -119,8 +169,6 @@ export default function MapView({
         );
 
       })}
-
-
 
     </MapContainer>
 
