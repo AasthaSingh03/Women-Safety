@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 
-export default function RouteInfo({ routes = [], onSelectRoute, setSegments }) {
+export default function RouteInfo({
+  routes = [],
+  onSelectRoute,
+  setSegments,
+  setNavigationMode
+}) {
 
   const [expanded, setExpanded] = useState(false);
 
@@ -20,21 +25,28 @@ export default function RouteInfo({ routes = [], onSelectRoute, setSegments }) {
 
   const startNavigation = async (coords) => {
 
+    /* activate navigation mode */
+    if (setNavigationMode) setNavigationMode(true);
+
+    /* show route */
     onSelectRoute(coords);
 
-    const res = await fetch("http://localhost:5000/api/route/segments", {
+    try {
 
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      const res = await fetch("http://localhost:5000/api/route/segments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ coords })
+      });
 
-      body: JSON.stringify({ coords })
+      const data = await res.json();
 
-    });
+      if (data.success) {
+        setSegments(data.segments);
+      }
 
-    const data = await res.json();
-
-    if (data.success) {
-      setSegments(data.segments);
+    } catch (err) {
+      console.error("Segment fetch error:", err);
     }
 
   };
@@ -49,6 +61,7 @@ export default function RouteInfo({ routes = [], onSelectRoute, setSegments }) {
         }`}
       >
 
+        {/* HEADER */}
         <div className="flex items-center justify-between px-4 py-2 border-b">
 
           <span className="text-sm font-semibold text-gray-600">
@@ -64,6 +77,7 @@ export default function RouteInfo({ routes = [], onSelectRoute, setSegments }) {
 
         </div>
 
+        {/* ROUTES */}
         <div className="overflow-y-auto px-3 py-3 space-y-3">
 
           {routes.map((route, index) => {
@@ -77,6 +91,7 @@ export default function RouteInfo({ routes = [], onSelectRoute, setSegments }) {
                 className={`bg-gray-50 rounded-xl shadow-sm p-4 border-2 ${color}`}
               >
 
+                {/* Route Header */}
                 <div className="flex justify-between mb-2">
 
                   <h3 className="font-semibold text-gray-800">
@@ -89,6 +104,7 @@ export default function RouteInfo({ routes = [], onSelectRoute, setSegments }) {
 
                 </div>
 
+                {/* Safety Score */}
                 <p className="text-sm mb-2 font-medium">
 
                   Safety Score:
@@ -98,6 +114,7 @@ export default function RouteInfo({ routes = [], onSelectRoute, setSegments }) {
 
                 </p>
 
+                {/* Indicators */}
                 <div className="grid grid-cols-2 gap-y-1 text-sm text-gray-700 mb-3">
 
                   <div>🚓 Police Nearby: {route.police}</div>
@@ -109,6 +126,7 @@ export default function RouteInfo({ routes = [], onSelectRoute, setSegments }) {
 
                 </div>
 
+                {/* Start Navigation */}
                 <button
                   onClick={() => startNavigation(route.coords)}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg"

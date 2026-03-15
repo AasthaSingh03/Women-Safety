@@ -6,8 +6,7 @@ import {
   MapContainer,
   TileLayer,
   Marker,
-  Polyline,
-  Circle
+  Polyline
 } from "react-leaflet";
 
 delete L.Icon.Default.prototype._getIconUrl;
@@ -28,7 +27,6 @@ export default function MapView({
 }) {
 
   const [position, setPosition] = useState(null);
-  const [zones, setZones] = useState([]);
 
   const getZoneColor = (risk) => {
     if (risk === "high") return "red";
@@ -56,23 +54,6 @@ export default function MapView({
 
   }, [setCurrentLocation]);
 
-  // Fetch safety zones
-  useEffect(() => {
-
-    fetch("http://localhost:5000/api/zones")
-      .then(res => res.json())
-      .then(data => {
-
-        if (data.success) {
-          setZones(data.zones);
-        }
-
-      })
-      .catch(err =>
-        console.error("Zone fetch error:", err)
-      );
-
-  }, []);
 
   if (!position) {
 
@@ -139,21 +120,7 @@ export default function MapView({
 
       })}
 
-      {/* SAFETY ZONES */}
-      {zones.map((zone, i) => (
 
-        <Circle
-          key={i}
-          center={zone.center}
-          radius={zone.radius}
-          pathOptions={{
-            color: getZoneColor(zone.risk),
-            fillColor: getZoneColor(zone.risk),
-            fillOpacity: 0.35
-          }}
-        />
-
-      ))}
 
     </MapContainer>
 
