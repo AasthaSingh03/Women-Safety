@@ -23,14 +23,15 @@ export default function MapView({
 }) {
 
   const [position, setPosition] = useState(null);
+
   const mapRef = useRef(null);
   const markerRef = useRef(null);
 
   const lastPosition = useRef(null);
 
-  /* --------------------------
-     Calculate direction angle
-  -------------------------- */
+  /* -----------------------
+     heading calculation
+  ----------------------- */
 
   const getHeading = (lat1, lon1, lat2, lon2) => {
 
@@ -50,9 +51,9 @@ export default function MapView({
 
   };
 
-  /* --------------------------
-     Real-time location tracking
-  -------------------------- */
+  /* -----------------------
+     GPS tracking
+  ----------------------- */
 
   useEffect(() => {
 
@@ -69,11 +70,17 @@ export default function MapView({
         setCurrentLocation(newPos);
 
         /* camera follow */
+
         if (mapRef.current) {
-          mapRef.current.setView(newPos, 17);
+
+          mapRef.current.flyTo(newPos, 17, {
+            duration: 1
+          });
+
         }
 
         /* rotate marker */
+
         if (markerRef.current && lastPosition.current) {
 
           const heading = getHeading(
@@ -106,12 +113,21 @@ export default function MapView({
   }, [setCurrentLocation]);
 
   if (!position) {
+
     return (
       <div className="flex items-center justify-center h-full">
         Loading Map...
       </div>
     );
+
   }
+
+  /* destination = last coordinate */
+
+  const destination =
+    selectedRoute.length > 0
+      ? selectedRoute[selectedRoute.length - 1]
+      : null;
 
   return (
 
@@ -127,7 +143,8 @@ export default function MapView({
         attribution="© OpenStreetMap contributors"
       />
 
-      {/* User Navigation Marker */}
+      {/* USER MARKER */}
+
       <Marker
         position={position}
         ref={markerRef}
@@ -135,7 +152,16 @@ export default function MapView({
         rotationOrigin="center"
       />
 
-      {/* Main Route */}
+      {/* DESTINATION MARKER */}
+
+      {destination && (
+
+        <Marker position={destination} />
+
+      )}
+
+      {/* MAIN ROUTE */}
+
       {selectedRoute.length > 1 && (
 
         <Polyline
@@ -145,7 +171,7 @@ export default function MapView({
 
       )}
 
-      {/* Colored Risk Segments */}
+      {/* SAFETY SEGMENTS */}
 
       {segments.map((seg, i) => {
 
@@ -153,7 +179,6 @@ export default function MapView({
 
         if (seg.risk > 0.7) color = "red";
         else if (seg.risk > 0.4) color = "orange";
-        else color = "green";
 
         return (
 
