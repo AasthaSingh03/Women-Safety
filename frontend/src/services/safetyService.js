@@ -1,6 +1,6 @@
 export const analyzeRoute = async (startCoords, destCoords) => {
 
-  const res = await fetch("http://localhost:5000/api/route/analyze", {
+  const res = await fetch("http://localhost:3000/api/route/analyze", {
 
     method: "POST",
 
@@ -17,10 +17,6 @@ export const analyzeRoute = async (startCoords, destCoords) => {
 
   const data = await res.json();
 
-  if (!data.success) {
-    throw new Error("Route analysis failed");
-  }
-
-  return data.routes;   // return all routes
+  return data;
 
 };
