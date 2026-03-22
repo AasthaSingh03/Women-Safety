@@ -1,244 +1,189 @@
 import express from "express";
-import { fetchAreaInfrastructure } from "../utils/safetyDataFetcher.js";
 import { calculatePointRisk } from "../utils/safetyScorer.js";
 import { getRoadRoutes } from "../utils/orsService.js";
 import CrimeIncident from "../models/CrimeIncident.js";
-import Infrastructure from "../models/Infrastructure.js";
-
+import { fetchInfrastructureForArea } from "../scripts/importInfrastructure.js";
 
 const router = express.Router();
 
-/* ------------------------------------------------ */
-/* ROUTE ANALYSIS */
-/* ------------------------------------------------ */
+const quickDist = (lat1, lon1, lat2, lon2) => {
+  const dLat = (lat2 - lat1) * 111000;
+  const dLon = (lon2 - lon1) * 111000 * Math.cos(lat1 * Math.PI / 180);
+  return Math.sqrt(dLat * dLat + dLon * dLon);
+};
+
+const getAutoZone = () => {
+  const h = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  ).getHours();
+  if (h >= 23 || h < 6) return "night";
+  if (h >= 17) return "evening";
+  return "day";
+};
+
+// Time-based display labels for crowd
+const crowdLabel = (avgCrowd, timeZone) => {
+  if (timeZone === "day") {
+    return avgCrowd > 8 ? "High" : avgCrowd > 3 ? "Moderate" : "Likely Low";
+  } else if (timeZone === "evening") {
+    return avgCrowd > 8 ? "Very High" : avgCrowd > 3 ? "High" : "Moderate";
+  } else {
+    return avgCrowd > 8 ? "Moderate" : avgCrowd > 3 ? "Low" : "Very Low";
+  }
+};
+
+// Time-based display labels for lighting
+const lightingLabel = (avgLights, timeZone) => {
+  if (timeZone === "day") return "Natural Light";
+  if (timeZone === "evening") {
+    return avgLights > 5 ? "Well Lit" : avgLights > 2 ? "Moderate" : "Dim";
+  }
+  return avgLights > 5 ? "Well Lit" : avgLights > 2 ? "Moderate" : "Dark";
+};
 
 router.post("/analyze", async (req, res) => {
 
-  const { start, destination } = req.body;
-
-  if (!start || !destination) {
+  const { start, destination, timeZone } = req.body;
+  if (!start || !destination)
     return res.status(400).json({ error: "Missing coordinates" });
-  }
 
   try {
 
-    const crimeIncidents = await CrimeIncident.find();
+    const zone = timeZone || getAutoZone();
+    console.log(`Time zone: ${zone}`);
 
+    const crimeIncidents = await CrimeIncident.find();
     const routes = await getRoadRoutes(start, destination);
+
+    const latsAll = [], lngsAll = [];
+    routes.forEach(r => r.coords.forEach(([lat, lng]) => {
+      latsAll.push(lat); lngsAll.push(lng);
+    }));
+    const bbox = [
+      Math.min(...latsAll) - 0.01, Math.min(...lngsAll) - 0.01,
+      Math.max(...latsAll) + 0.01, Math.max(...lngsAll) + 0.01
+    ];
+
+    const allInfraData = await fetchInfrastructureForArea(bbox);
+    console.log("Infra:", allInfraData.length, "| Crimes:", crimeIncidents.length, "| Zone:", zone);
 
     const analyzedRoutes = [];
 
-    /* -------------------------------
-       Calculate bbox for ALL routes
-    ------------------------------- */
-
-    const latsAll = [];
-    const lngsAll = [];
-
-    routes.forEach(route => {
-      route.coords.forEach(point => {
-        latsAll.push(point[0]);
-        lngsAll.push(point[1]);
-      });
-    });
-
-    const bbox = [
-      Math.min(...latsAll),
-      Math.min(...lngsAll),
-      Math.max(...latsAll),
-      Math.max(...lngsAll)
-    ];
-
-    /* -------------------------------
-       Fetch infrastructure ONCE
-    ------------------------------- */
-
-    const allInfraData = await Infrastructure.find({
-  lat: { $gte: bbox[0], $lte: bbox[2] },
-  lon: { $gte: bbox[1], $lte: bbox[3] }
-});
-
-    /* -------------------------------
-       Analyze each route
-    ------------------------------- */
-
     for (let i = 0; i < routes.length; i++) {
 
-      const route = routes[i];
-      const coords = route.coords;
-
-      const samples = coords.filter((_, index) => index % 10 === 0);
+      const route   = routes[i];
+      const coords  = route.coords;
+      const samples = coords.filter((_, idx) => idx % 10 === 0);
 
       let totalRisk = 0;
+      let totalPolice = 0, totalLights = 0, totalCrowd = 0, totalSafe = 0;
 
-      for (const point of samples) {
+      for (const [lat, lng] of samples) {
 
-        const lat = point[0];
-        const lng = point[1];
+        totalRisk += calculatePointRisk(allInfraData, crimeIncidents, lat, lng, zone);
 
-        totalRisk += calculatePointRisk(
-          allInfraData,
-          crimeIncidents,
-          lat,
-          lng
+        const nearby = allInfraData.filter(item =>
+          item.lat && item.lon && quickDist(lat, lng, item.lat, item.lon) < 300
         );
 
+        totalPolice += nearby.filter(e => e.tags?.amenity === "police").length;
+        totalLights += nearby.filter(e =>
+          e.tags?.highway === "street_lamp" ||
+          e.tags?.lit === "yes" || e.tags?.lit === "24/7"
+        ).length;
+        totalCrowd += nearby.filter(e =>
+          ["restaurant","cafe","marketplace","fast_food","bar","pub",
+           "college","university","supermarket"]
+            .includes(e.tags?.amenity || e.tags?.shop)
+        ).length;
+        totalSafe += nearby.filter(e =>
+          e.tags?.tourism === "hotel"    ||
+          e.tags?.amenity === "hospital" ||
+          e.tags?.amenity === "clinic"   ||
+          e.tags?.amenity === "pharmacy"
+        ).length;
       }
 
-      const avgRisk = totalRisk / samples.length;
-
+      const avgRisk     = totalRisk    / samples.length;
       const safetyScore = Math.round((1 - avgRisk) * 100);
+      const avgPolice   = Math.round(totalPolice / samples.length);
+      const avgLights   = Math.round(totalLights / samples.length);
+      const avgCrowd    = Math.round(totalCrowd  / samples.length);
 
-      /* -------------------------------
-         Infrastructure indicators
-      ------------------------------- */
-
-      const policeNearby = allInfraData.filter(
-        e => e.tags?.amenity === "police"
+      // Static counts — same across all modes
+      const hotels    = allInfraData.filter(e =>
+        e.tags?.tourism === "hotel" || e.tags?.tourism === "hostel"
+      ).length;
+      const hospitals = allInfraData.filter(e =>
+        e.tags?.amenity === "hospital"
       ).length;
 
-      const lightingCount = allInfraData.filter(
-        e => e.tags?.highway === "street_lamp" || e.tags?.lit === "yes"
-      ).length;
-
-      const crowdPlaces = allInfraData.filter(
-        e => ["restaurant","cafe","marketplace"].includes(e.tags?.amenity)
-      ).length;
-
-      const hotels = allInfraData.filter(
-        e => e.tags?.tourism === "hotel"
-      ).length;
-
-      const hospitals = allInfraData.filter(
-        e => e.tags?.amenity === "hospital"
-      ).length;
+      // Risk zones amplified at night
+      const riskMultiplier = zone === "night" ? 1.5 : zone === "evening" ? 1.2 : 1.0;
 
       analyzedRoutes.push({
-
-        id: i + 1,
-
+        id:         i + 1,
         coords,
-
-        distance: (route.distance / 1000).toFixed(2),
-
-        time: Math.round(route.duration / 60),
-
+        distance:   (route.distance / 1000).toFixed(2),
+        time:       Math.round(route.duration / 60),
         safetyScore,
-
-        police: policeNearby,
-
-        lighting:
-          lightingCount > 20
-            ? "Well Lit"
-            : lightingCount > 10
-            ? "Moderate"
-            : "Low Lighting",
-
-        crowd:
-          crowdPlaces > 20
-            ? "High"
-            : crowdPlaces > 10
-            ? "Moderate"
-            : "Low",
-
-        hotels,
-        hospitals,
-
-        riskZones: Math.round(avgRisk * 5)
-
+        timeZone:   zone,
+        police:     avgPolice,
+        lighting:   lightingLabel(avgLights, zone),   // ← context-aware label
+        crowd:      crowdLabel(avgCrowd, zone),        // ← context-aware label
+        hotels,                                        // ← static, never changes
+        hospitals,                                     // ← static, never changes
+        riskZones:  Math.round(avgRisk * riskMultiplier * 5)
       });
-
     }
 
-    res.json({
-      success: true,
-      routes: analyzedRoutes
-    });
+    res.json({ success: true, routes: analyzedRoutes });
 
   } catch (err) {
-
     console.error("Analysis Error:", err);
-
-    res.status(500).json({
-      success: false,
-      error: "Server analysis failed"
-    });
-
+    res.status(500).json({ success: false, error: "Server analysis failed" });
   }
-
 });
 
-
-/* ------------------------------------------------ */
-/* SEGMENT RISK ANALYSIS */
-/* ------------------------------------------------ */
 
 router.post("/segments", async (req, res) => {
 
   try {
 
-    const { coords } = req.body;
+    const { coords, timeZone } = req.body;
+    if (!coords || coords.length < 2)
+      return res.status(400).json({ error: "Invalid coordinates" });
 
-    if (!coords || coords.length < 2) {
-      return res.status(400).json({
-        error: "Invalid route coordinates"
-      });
-    }
-
+    const zone = timeZone || getAutoZone();
     const crimeIncidents = await CrimeIncident.find();
 
     const lats = coords.map(p => p[0]);
     const lngs = coords.map(p => p[1]);
-
     const bbox = [
-      Math.min(...lats),
-      Math.min(...lngs),
-      Math.max(...lats),
-      Math.max(...lngs)
+      Math.min(...lats) - 0.01, Math.min(...lngs) - 0.01,
+      Math.max(...lats) + 0.01, Math.max(...lngs) + 0.01
     ];
 
-    const infra = await fetchAreaInfrastructure(bbox);
+    const infra = await fetchInfrastructureForArea(bbox);
 
     const segments = [];
-
     for (let i = 0; i < coords.length - 1; i++) {
-
-      const start = coords[i];
-      const end = coords[i + 1];
-
-      const midLat = (start[0] + end[0]) / 2;
-      const midLng = (start[1] + end[1]) / 2;
-
+      const [sLat, sLng] = coords[i];
+      const [eLat, eLng] = coords[i + 1];
       const risk = calculatePointRisk(
-        infra,
-        crimeIncidents,
-        midLat,
-        midLng
+        infra, crimeIncidents,
+        (sLat + eLat) / 2, (sLng + eLng) / 2,
+        zone
       );
-
-      segments.push({
-        coords: [start, end],
-        risk
-      });
-
+      segments.push({ coords: [coords[i], coords[i + 1]], risk });
     }
 
-    res.json({
-      success: true,
-      segments
-    });
+    res.json({ success: true, segments });
 
   } catch (err) {
-
     console.error("Segment Error:", err);
-
-    res.status(500).json({
-      success: false,
-      error: "Segment analysis failed"
-    });
-
+    res.status(500).json({ success: false, error: "Segment analysis failed" });
   }
-
 });
 
 export default router;

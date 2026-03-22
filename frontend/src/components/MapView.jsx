@@ -11,11 +11,10 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-/* ─────────────────────────────────────────
-   MapController
-───────────────────────────────────────── */
 function MapController({ position, selectedRoute, navigationMode, autoFollow, setAutoFollow }) {
   const map = useMap();
+  const prevNavigationMode = useRef(false);
+  const followTimerRef = useRef(null);
 
   useEffect(() => {
     if (!map) return;
@@ -35,8 +34,36 @@ function MapController({ position, selectedRoute, navigationMode, autoFollow, se
     const onDragStart = () => setAutoFollow(false);
     map.on("dragstart", onDragStart);
 
-    return () => map.off("dragstart", onDragStart);
+    return () => {
+      map.off("dragstart", onDragStart);
+      if (followTimerRef.current) clearTimeout(followTimerRef.current);
+    };
   }, [map, setAutoFollow]);
+
+  useEffect(() => {
+    if (!map) return;
+
+    const justStartedNav = navigationMode && !prevNavigationMode.current;
+    prevNavigationMode.current = navigationMode;
+
+    if (justStartedNav && selectedRoute.length > 1) {
+      setAutoFollow(false);
+
+      const destination = selectedRoute[selectedRoute.length - 1];
+      map.flyTo(destination, 17, { animate: true });
+
+      if (followTimerRef.current) clearTimeout(followTimerRef.current);
+      followTimerRef.current = null;
+
+      return;
+    }
+
+    if (!navigationMode && selectedRoute.length > 1) {
+      const bounds = L.latLngBounds(selectedRoute);
+      map.fitBounds(bounds, { padding: [60, 60] });
+    }
+
+  }, [selectedRoute, navigationMode, map, setAutoFollow]);
 
   useEffect(() => {
     if (!map || !position) return;
@@ -45,20 +72,9 @@ function MapController({ position, selectedRoute, navigationMode, autoFollow, se
     }
   }, [position, navigationMode, autoFollow, map]);
 
-  useEffect(() => {
-    if (!map) return;
-    if (!navigationMode && selectedRoute.length > 1) {
-      const bounds = L.latLngBounds(selectedRoute);
-      map.fitBounds(bounds, { padding: [60, 60] });
-    }
-  }, [selectedRoute, navigationMode, map]);
-
   return null;
 }
 
-/* ─────────────────────────────────────────
-   RotatingMarker — blue dot for user
-───────────────────────────────────────── */
 function RotatingMarker({ position, rotationAngle }) {
   const map = useMap();
   const markerRef = useRef(null);
@@ -100,9 +116,6 @@ function RotatingMarker({ position, rotationAngle }) {
   return null;
 }
 
-/* ─────────────────────────────────────────
-   RedMarker — red pin for destination
-───────────────────────────────────────── */
 function RedMarker({ position }) {
   const map = useMap();
   const markerRef = useRef(null);
@@ -113,11 +126,7 @@ function RedMarker({ position }) {
     const icon = L.divIcon({
       className: "",
       html: `
-        <div style="
-          position: relative;
-          width: 32px;
-          height: 42px;
-        ">
+        <div style="position: relative; width: 32px; height: 42px;">
           <div style="
             width: 32px;
             height: 32px;
@@ -135,7 +144,6 @@ function RedMarker({ position }) {
             height: 10px;
             background: white;
             border-radius: 50%;
-            transform: rotate(0deg);
           "></div>
         </div>
       `,
@@ -161,9 +169,6 @@ function RedMarker({ position }) {
   return null;
 }
 
-/* ─────────────────────────────────────────
-   MAIN COMPONENT
-───────────────────────────────────────── */
 export default function MapView({
   setCurrentLocation,
   selectedRoute = [],
@@ -171,7 +176,7 @@ export default function MapView({
   navigationMode = false,
 }) {
   const [position, setPosition] = useState(null);
-  const [autoFollow, setAutoFollow] = useState(true);
+  const [autoFollow, setAutoFollow] = useState(false);
   const [heading, setHeading] = useState(0);
   const lastPosition = useRef(null);
 
@@ -186,7 +191,6 @@ export default function MapView({
     return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
   };
 
-  /* GPS watch */
   useEffect(() => {
     if (!navigator.geolocation) return;
 
@@ -216,11 +220,6 @@ export default function MapView({
     return () => navigator.geolocation.clearWatch(watchId);
   }, [setCurrentLocation]);
 
-  /* Reset autoFollow when nav mode starts */
-  useEffect(() => {
-    if (navigationMode) setAutoFollow(true);
-  }, [navigationMode]);
-
   if (!position) {
     return (
       <div className="flex items-center justify-center h-full bg-gray-100">
@@ -243,12 +242,8 @@ export default function MapView({
   };
 
   return (
-    <div
-      className="relative w-full h-full"
-      style={{ touchAction: "auto" }}
-    >
+    <div className="relative w-full h-full" style={{ touchAction: "auto" }}>
 
-      {/* Recenter button */}
       {!autoFollow && navigationMode && (
         <button
           onClick={() => setAutoFollow(true)}
@@ -283,18 +278,12 @@ export default function MapView({
           setAutoFollow={setAutoFollow}
         />
 
-        {/* Blue rotating dot — user location */}
         <RotatingMarker position={position} rotationAngle={heading} />
 
-        {/* Start marker — default blue leaflet pin */}
         {startPoint && <Marker position={startPoint} />}
 
-        {/* Destination — red pin */}
-        {destination && (
-          <RedMarker position={destination} />
-        )}
+        {destination && <RedMarker position={destination} />}
 
-        {/* Full route — orange, only when no segments */}
         {selectedRoute.length > 1 && segments.length === 0 && (
           <Polyline
             positions={selectedRoute}
@@ -302,7 +291,6 @@ export default function MapView({
           />
         )}
 
-        {/* Segment colored route */}
         {segments.map((seg, i) => (
           <Polyline
             key={i}

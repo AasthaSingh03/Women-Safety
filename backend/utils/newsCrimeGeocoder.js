@@ -1,34 +1,40 @@
 import axios from "axios";
+import dotenv from "dotenv";
+dotenv.config();
+
+const geocodeCache = new Map();
 
 export async function geocodeLocation(place) {
 
+  if (!place || place.length < 2) return null;
+  if (geocodeCache.has(place)) return geocodeCache.get(place);
+
   try {
 
-    const response = await axios.get(
-      "https://api.mapbox.com/geocoding/v5/mapbox.places/" +
-      encodeURIComponent(place) +
-      ".json",
+    const res = await axios.get(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(place)}.json`,
       {
         params: {
-          access_token: process.env.MAPBOX_API_KEY
+          access_token: process.env.MAPBOX_API_KEY,
+          country: "in",
+          limit: 1,
+          types: "place,locality,neighborhood,district,region"
         }
       }
     );
 
-    if (!response.data.features.length) return null;
+    if (!res.data.features?.length) {
+      geocodeCache.set(place, null);
+      return null;
+    }
 
-    const coords = response.data.features[0].center;
+    const coords = res.data.features[0].center;
+    const result = { lon: coords[0], lat: coords[1] };
+    geocodeCache.set(place, result);
+    return result;
 
-    return {
-      lon: coords[0],
-      lat: coords[1]
-    };
-
-  } catch (error) {
-
-    console.error("Geocode error:", error.message);
+  } catch (err) {
+    console.error("Geocode error:", place, err.message);
     return null;
-
   }
-
 }
