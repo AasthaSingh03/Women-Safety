@@ -22,6 +22,7 @@ export default function RouteInfo({
   setNavigationMode,
   setRoutes,
   lastSearchRef,
+  onPreviewRoute,  // ← replaces onStartRoute
 }) {
 
   const [expanded, setExpanded] = useState(false);
@@ -44,17 +45,17 @@ export default function RouteInfo({
     Lighting: {
       title: "💡 Lighting Levels",
       ranges: [
-        { label: "Low Lighting", range: "0–2 lamps", color: "#ef4444" },
-        { label: "Moderate",     range: "3–5 lamps", color: "#f59e0b" },
-        { label: "Well Lit",     range: "6+ lamps",  color: "#22c55e" },
+        { label: "Dark / Low",    range: "0–2 lamps",  color: "#ef4444" },
+        { label: "Moderate/Dim",  range: "3–5 lamps",  color: "#f59e0b" },
+        { label: "Well Lit",      range: "6+ lamps",   color: "#22c55e" },
       ],
     },
     Crowd: {
       title: "👥 Crowd Levels",
       ranges: [
-        { label: "Low",      range: "0–3 places", color: "#ef4444" },
-        { label: "Moderate", range: "4–8 places", color: "#f59e0b" },
-        { label: "High",     range: "9+ places",  color: "#22c55e" },
+        { label: "Very Low/Low",   range: "0–3 places", color: "#ef4444" },
+        { label: "Moderate",       range: "4–8 places", color: "#f59e0b" },
+        { label: "High/Very High", range: "9+ places",  color: "#22c55e" },
       ],
     },
   };
@@ -87,24 +88,13 @@ export default function RouteInfo({
     }
   };
 
-  const startNavigation = async (coords) => {
-    if (setNavigationMode) setNavigationMode(true);
-    onSelectRoute(coords);
-    try {
-      const res = await fetch("http://localhost:5000/api/route/segments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coords, timeZone })
-      });
-      const data = await res.json();
-      if (data.success) setSegments(data.segments);
-    } catch (err) {
-      console.error("Segment error:", err);
-    }
+  const handleDirections = (route) => {
+    onSelectRoute(route.coords);          // show route on map
+    if (onPreviewRoute) onPreviewRoute({ ...route, timeZone }); // open preview sheet
   };
 
   const zc = ZONE_CONFIG[timeZone];
-  const panelBg = isNight ? "#0f172a" : timeZone === "evening" ? "#0f172a" : "#ffffff";
+  const panelBg = isNight || timeZone === "evening" ? "#0f172a" : "#ffffff";
   const borderColor = isNight || timeZone === "evening" ? "#1e293b" : "#f1f5f9";
 
   return (
@@ -117,12 +107,12 @@ export default function RouteInfo({
       {tooltip && (
         <div style={{
           position: "fixed",
-          top: Math.max(tooltip.y - 160, 10),
+          top: Math.max(tooltip.y - 180, 10),
           left: Math.min(tooltip.x, window.innerWidth - 220),
           zIndex: 999,
           backgroundColor: isNight ? "#1e293b" : "white",
           border: `1px solid ${isNight ? "#334155" : "#e2e8f0"}`,
-          borderRadius: "12px", padding: "12px", width: "200px",
+          borderRadius: "12px", padding: "12px", width: "210px",
           boxShadow: "0 4px 20px rgba(0,0,0,0.15)", pointerEvents: "auto",
         }} onClick={e => e.stopPropagation()}>
           <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "8px", color: isNight ? "#f1f5f9" : "#1e293b" }}>
@@ -172,8 +162,6 @@ export default function RouteInfo({
             <span style={{ backgroundColor: "#3b82f6", color: "white", fontSize: "11px", fontWeight: 600, padding: "1px 8px", borderRadius: "999px" }}>
               {routes.length}
             </span>
-
-            {/* 3-state toggle */}
             <button onClick={handleToggle} disabled={loading} style={{
               fontSize: "11px", fontWeight: 600,
               backgroundColor: isNight ? zc.darkBg : zc.bg,
@@ -184,7 +172,6 @@ export default function RouteInfo({
               {loading ? "⏳" : zc.label}
             </button>
           </div>
-
           <button onClick={() => setExpanded(!expanded)} style={{
             fontSize: "12px", fontWeight: 600, color: "#3b82f6",
             background: isNight ? "#1e293b" : "#eff6ff",
@@ -213,30 +200,29 @@ export default function RouteInfo({
         <div style={{ overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
           {routes.map((route, index) => {
             const colors = getScoreColor(route.safetyScore);
-            const cardBg = isNight ? "#1e293b" : timeZone === "evening" ? "#1e293b" : colors.bg;
+            const cardBg   = isNight || timeZone === "evening" ? "#1e293b" : colors.bg;
+            const textColor = isNight || timeZone === "evening" ? "#f1f5f9" : "#1e293b";
+            const subColor  = isNight || timeZone === "evening" ? "#94a3b8" : "#64748b";
+            const tileBg    = isNight || timeZone === "evening" ? "#0f172a" : "white";
+            const tileBorder = isNight || timeZone === "evening" ? "#334155" : "#f1f5f9";
+
             return (
               <div key={index} style={{ backgroundColor: cardBg, border: `2px solid ${colors.border}`, borderRadius: "16px", padding: "14px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
 
+                {/* Title Row */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span>⭐</span>
-                    <span style={{ fontWeight: 700, fontSize: "15px", color: isNight ? "#f1f5f9" : timeZone === "evening" ? "#f1f5f9" : "#1e293b" }}>
-                      Route {route.id}
-                    </span>
+                    <span style={{ fontWeight: 700, fontSize: "15px", color: textColor }}>Route {route.id}</span>
                   </div>
                   <div style={{ display: "flex", gap: "6px" }}>
                     {["📍 " + route.distance + " km", "⏱ " + route.time + " min"].map((t, i) => (
-                      <span key={i} style={{
-                        fontSize: "12px",
-                        color: isNight || timeZone === "evening" ? "#94a3b8" : "#64748b",
-                        background: isNight || timeZone === "evening" ? "#0f172a" : "white",
-                        padding: "2px 8px", borderRadius: "999px",
-                        border: `1px solid ${isNight || timeZone === "evening" ? "#334155" : "#e2e8f0"}`,
-                      }}>{t}</span>
+                      <span key={i} style={{ fontSize: "12px", color: subColor, background: tileBg, padding: "2px 8px", borderRadius: "999px", border: `1px solid ${tileBorder}` }}>{t}</span>
                     ))}
                   </div>
                 </div>
 
+                {/* Badges */}
                 <div style={{ display: "flex", gap: "6px", marginBottom: "10px", flexWrap: "wrap" }}>
                   <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", backgroundColor: colors.badge, color: "white", fontSize: "12px", fontWeight: 600, padding: "3px 10px", borderRadius: "999px" }}>
                     🛡️ Safety Score: {route.safetyScore}/100
@@ -246,8 +232,14 @@ export default function RouteInfo({
                       🌙 High Night Risk
                     </div>
                   )}
+                  {route.hasReports && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", backgroundColor: "#fef3c7", color: "#92400e", fontSize: "11px", fontWeight: 600, padding: "3px 10px", borderRadius: "999px" }}>
+                      ⚠️ Community Reports
+                    </div>
+                  )}
                 </div>
 
+                {/* Indicators */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "12px" }}>
                   {[
                     { icon: "🚓", label: "Police",     value: route.police,    clickable: false },
@@ -261,26 +253,26 @@ export default function RouteInfo({
                       onClick={item.clickable ? (e) => handleInfoClick(e, item.label, item.value) : undefined}
                       style={{
                         display: "flex", alignItems: "center", gap: "5px",
-                        backgroundColor: isNight || timeZone === "evening" ? "#0f172a" : "white",
-                        borderRadius: "8px", padding: "5px 8px", fontSize: "12px",
-                        border: `1px solid ${item.clickable ? "#3b82f6" : (isNight || timeZone === "evening" ? "#334155" : "#f1f5f9")}`,
+                        backgroundColor: tileBg, borderRadius: "8px", padding: "5px 8px", fontSize: "12px",
+                        border: `1px solid ${item.clickable ? "#3b82f6" : tileBorder}`,
                         cursor: item.clickable ? "pointer" : "default",
                       }}>
                       <span style={{ fontSize: "13px" }}>{item.icon}</span>
-                      <span style={{ color: isNight || timeZone === "evening" ? "#64748b" : "#94a3b8", fontSize: "11px" }}>{item.label}:</span>
+                      <span style={{ color: subColor, fontSize: "11px" }}>{item.label}:</span>
                       <span style={{ fontWeight: 600, color: isNight || timeZone === "evening" ? "#e2e8f0" : "#374151" }}>{item.value}</span>
                       {item.clickable && <span style={{ marginLeft: "auto", fontSize: "10px", color: "#3b82f6" }}>ℹ️</span>}
                     </div>
                   ))}
                 </div>
 
+                {/* Directions button */}
                 <button
-                  onClick={() => startNavigation(route.coords)}
+                  onClick={() => handleDirections(route)}
                   style={{ width: "100%", backgroundColor: "#2563eb", color: "white", border: "none", borderRadius: "12px", padding: "10px", fontSize: "14px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
                   onMouseEnter={e => e.currentTarget.style.backgroundColor = "#1d4ed8"}
                   onMouseLeave={e => e.currentTarget.style.backgroundColor = "#2563eb"}
                 >
-                  🧭 Start Navigation
+                  🗺️ Directions
                 </button>
               </div>
             );

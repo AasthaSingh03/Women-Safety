@@ -13,6 +13,7 @@ const getAutoZone = () => {
 export default function SearchPanel({
   destination, setDestination, setRoutes,
   currentLocation, lastSearchRef,
+  onStartLocationResolved,
 }) {
 
   const [startPlace, setStartPlace] = useState("");
@@ -20,6 +21,7 @@ export default function SearchPanel({
   const [startSuggestions, setStartSuggestions] = useState([]);
   const [destSuggestions, setDestSuggestions] = useState([]);
   const [destProximity, setDestProximity] = useState(null);
+
   const startDebounceRef = useRef(null);
   const destDebounceRef = useRef(null);
 
@@ -64,13 +66,12 @@ export default function SearchPanel({
       const startCoords = await geocodePlace(startPlace, lat, lng);
       const destCoords  = await geocodePlace(destPlace, lat, lng);
 
-      // Save for timezone toggle re-fetch
-      if (lastSearchRef) {
-        lastSearchRef.current = { startCoords, destCoords };
-      }
+      // ← Tell page.js the resolved start coords
+      if (onStartLocationResolved) onStartLocationResolved(startCoords);
 
-      const timeZone = getAutoZone(); // auto-detect on initial search
+      if (lastSearchRef) lastSearchRef.current = { startCoords, destCoords };
 
+      const timeZone = getAutoZone();
       const res = await fetch("http://localhost:5000/api/route/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -88,6 +89,7 @@ export default function SearchPanel({
   return (
     <div className="fixed top-14 left-1/2 -translate-x-1/2 w-[90%] max-w-md bg-white rounded-b-xl shadow-lg p-4 z-[200]">
 
+      {/* START INPUT */}
       <div className="relative mb-3">
         <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-white">
           <span className="text-pink-500">📍</span>
@@ -102,13 +104,15 @@ export default function SearchPanel({
         {startSuggestions.length > 0 && (
           <div className="absolute top-full left-0 w-full bg-white border rounded-lg shadow-md mt-1 max-h-48 overflow-y-auto z-50">
             {startSuggestions.map((s, i) => (
-              <div key={i} onClick={() => { setStartPlace(s); setStartSuggestions([]); }}
+              <div key={i}
+                onClick={() => { setStartPlace(s); setStartSuggestions([]); }}
                 className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer">{s}</div>
             ))}
           </div>
         )}
       </div>
 
+      {/* DESTINATION INPUT */}
       <div className="relative mb-3">
         <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-white">
           <span className="text-red-500">🎯</span>

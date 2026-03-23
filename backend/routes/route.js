@@ -2,6 +2,7 @@ import express from "express";
 import { calculatePointRisk } from "../utils/safetyScorer.js";
 import { getRoadRoutes } from "../utils/orsService.js";
 import CrimeIncident from "../models/CrimeIncident.js";
+import SafetyReport from "../models/SafetyReport.js";
 import { fetchInfrastructureForArea } from "../scripts/importInfrastructure.js";
 
 const router = express.Router();
@@ -21,23 +22,15 @@ const getAutoZone = () => {
   return "day";
 };
 
-// Time-based display labels for crowd
 const crowdLabel = (avgCrowd, timeZone) => {
-  if (timeZone === "day") {
-    return avgCrowd > 8 ? "High" : avgCrowd > 3 ? "Moderate" : "Likely Low";
-  } else if (timeZone === "evening") {
-    return avgCrowd > 8 ? "Very High" : avgCrowd > 3 ? "High" : "Moderate";
-  } else {
-    return avgCrowd > 8 ? "Moderate" : avgCrowd > 3 ? "Low" : "Very Low";
-  }
+  if (timeZone === "day")     return avgCrowd > 8 ? "High" : avgCrowd > 3 ? "Moderate" : "Likely Low";
+  if (timeZone === "evening") return avgCrowd > 8 ? "Very High" : avgCrowd > 3 ? "High" : "Moderate";
+  return avgCrowd > 8 ? "Moderate" : avgCrowd > 3 ? "Low" : "Very Low";
 };
 
-// Time-based display labels for lighting
 const lightingLabel = (avgLights, timeZone) => {
   if (timeZone === "day") return "Natural Light";
-  if (timeZone === "evening") {
-    return avgLights > 5 ? "Well Lit" : avgLights > 2 ? "Moderate" : "Dim";
-  }
+  if (timeZone === "evening") return avgLights > 5 ? "Well Lit" : avgLights > 2 ? "Moderate" : "Dim";
   return avgLights > 5 ? "Well Lit" : avgLights > 2 ? "Moderate" : "Dark";
 };
 
@@ -50,7 +43,7 @@ router.post("/analyze", async (req, res) => {
   try {
 
     const zone = timeZone || getAutoZone();
-    console.log(`Time zone: ${zone}`);
+    console.log(`Zone: ${zone}`);
 
     const crimeIncidents = await CrimeIncident.find();
     const routes = await getRoadRoutes(start, destination);
@@ -65,7 +58,15 @@ router.post("/analyze", async (req, res) => {
     ];
 
     const allInfraData = await fetchInfrastructureForArea(bbox);
-    console.log("Infra:", allInfraData.length, "| Crimes:", crimeIncidents.length, "| Zone:", zone);
+
+    // Community reports — last 3 days only
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const communityReports = await SafetyReport.find({
+      timestamp: { $gte: threeDaysAgo },
+      lat: { $gte: bbox[0], $lte: bbox[2] },
+      lon: { $gte: bbox[1], $lte: bbox[3] },
+    });
+    console.log("Infra:", allInfraData.length, "| Crimes:", crimeIncidents.length, "| Reports:", communityReports.length);
 
     const analyzedRoutes = [];
 
@@ -76,11 +77,13 @@ router.post("/analyze", async (req, res) => {
       const samples = coords.filter((_, idx) => idx % 10 === 0);
 
       let totalRisk = 0;
-      let totalPolice = 0, totalLights = 0, totalCrowd = 0, totalSafe = 0;
+      let totalPolice = 0, totalLights = 0, totalCrowd = 0;
 
       for (const [lat, lng] of samples) {
 
-        totalRisk += calculatePointRisk(allInfraData, crimeIncidents, lat, lng, zone);
+        totalRisk += calculatePointRisk(
+          allInfraData, crimeIncidents, lat, lng, zone, communityReports
+        );
 
         const nearby = allInfraData.filter(item =>
           item.lat && item.lon && quickDist(lat, lng, item.lat, item.lon) < 300
@@ -92,15 +95,8 @@ router.post("/analyze", async (req, res) => {
           e.tags?.lit === "yes" || e.tags?.lit === "24/7"
         ).length;
         totalCrowd += nearby.filter(e =>
-          ["restaurant","cafe","marketplace","fast_food","bar","pub",
-           "college","university","supermarket"]
+          ["restaurant","cafe","marketplace","fast_food","bar","pub","college","university","supermarket"]
             .includes(e.tags?.amenity || e.tags?.shop)
-        ).length;
-        totalSafe += nearby.filter(e =>
-          e.tags?.tourism === "hotel"    ||
-          e.tags?.amenity === "hospital" ||
-          e.tags?.amenity === "clinic"   ||
-          e.tags?.amenity === "pharmacy"
         ).length;
       }
 
@@ -110,30 +106,26 @@ router.post("/analyze", async (req, res) => {
       const avgLights   = Math.round(totalLights / samples.length);
       const avgCrowd    = Math.round(totalCrowd  / samples.length);
 
-      // Static counts — same across all modes
-      const hotels    = allInfraData.filter(e =>
-        e.tags?.tourism === "hotel" || e.tags?.tourism === "hostel"
-      ).length;
-      const hospitals = allInfraData.filter(e =>
-        e.tags?.amenity === "hospital"
-      ).length;
-
-      // Risk zones amplified at night
+      const hotels    = allInfraData.filter(e => e.tags?.tourism === "hotel" || e.tags?.tourism === "hostel").length;
+      const hospitals = allInfraData.filter(e => e.tags?.amenity === "hospital").length;
       const riskMultiplier = zone === "night" ? 1.5 : zone === "evening" ? 1.2 : 1.0;
 
+      // Check if community reports affect this route
+      const hasReports = communityReports.some(r =>
+        coords.some(([lat, lng]) => quickDist(lat, lng, r.lat, r.lon) < 200)
+      );
+
       analyzedRoutes.push({
-        id:         i + 1,
-        coords,
+        id: i + 1, coords,
         distance:   (route.distance / 1000).toFixed(2),
         time:       Math.round(route.duration / 60),
-        safetyScore,
-        timeZone:   zone,
+        safetyScore, timeZone: zone,
         police:     avgPolice,
-        lighting:   lightingLabel(avgLights, zone),   // ← context-aware label
-        crowd:      crowdLabel(avgCrowd, zone),        // ← context-aware label
-        hotels,                                        // ← static, never changes
-        hospitals,                                     // ← static, never changes
-        riskZones:  Math.round(avgRisk * riskMultiplier * 5)
+        lighting:   lightingLabel(avgLights, zone),
+        crowd:      crowdLabel(avgCrowd, zone),
+        hotels, hospitals,
+        riskZones:  Math.round(avgRisk * riskMultiplier * 5),
+        hasReports,   // ← flag for frontend warning
       });
     }
 
@@ -166,6 +158,13 @@ router.post("/segments", async (req, res) => {
 
     const infra = await fetchInfrastructureForArea(bbox);
 
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const communityReports = await SafetyReport.find({
+      timestamp: { $gte: threeDaysAgo },
+      lat: { $gte: bbox[0], $lte: bbox[2] },
+      lon: { $gte: bbox[1], $lte: bbox[3] },
+    });
+
     const segments = [];
     for (let i = 0; i < coords.length - 1; i++) {
       const [sLat, sLng] = coords[i];
@@ -173,7 +172,7 @@ router.post("/segments", async (req, res) => {
       const risk = calculatePointRisk(
         infra, crimeIncidents,
         (sLat + eLat) / 2, (sLng + eLng) / 2,
-        zone
+        zone, communityReports
       );
       segments.push({ coords: [coords[i], coords[i + 1]], risk });
     }

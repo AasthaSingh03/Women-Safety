@@ -6,6 +6,9 @@ import SearchPanel from "../components/SearchPanel";
 import Header from "../components/Header";
 import Legend from "../components/Legend";
 import RouteInfo from "../components/RouteInfo";
+import RoutePreviewSheet from "../components/RoutePreviewSheet";
+import NavigationHUD from "../components/NavigationHUD";
+import ReportModal from "../components/ReportModal";
 
 export default function Home() {
 
@@ -15,14 +18,36 @@ export default function Home() {
   const [selectedRoute, setSelectedRoute] = useState([]);
   const [segments, setSegments] = useState([]);
   const [navigationMode, setNavigationMode] = useState(false);
+  const [previewRoute, setPreviewRoute] = useState(null);
+  const [activeRouteId, setActiveRouteId] = useState(null);
+  const [estimatedTime, setEstimatedTime] = useState(0);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [startLocation, setStartLocation] = useState(null);
 
-  const lastSearchRef = useRef(null); // ← stores coords for timezone toggle
+  const lastSearchRef = useRef(null);
 
   const endNavigation = () => {
     setNavigationMode(false);
     setSelectedRoute([]);
     setSegments([]);
+    setActiveRouteId(null);
+    setPreviewRoute(null);
   };
+
+  const handlePreviewRoute = (route) => {
+    setPreviewRoute(route);
+    setSelectedRoute(route.coords);
+  };
+
+  const handleStartNavigation = (route, segs) => {
+    setPreviewRoute(null);
+    setSegments(segs);
+    setActiveRouteId(route.id);
+    setEstimatedTime(route.time);
+    setNavigationMode(true);
+  };
+
+  const isUI = !navigationMode && !previewRoute;
 
   return (
     <div className="relative w-screen h-screen overflow-hidden">
@@ -33,29 +58,19 @@ export default function Home() {
           selectedRoute={selectedRoute}
           segments={segments}
           navigationMode={navigationMode}
+          startLocation={startLocation}
         />
       </div>
 
       <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 50 }}>
 
-        {!navigationMode && (
+        {isUI && (
           <div className="pointer-events-auto">
             <Header />
           </div>
         )}
 
-        {navigationMode && (
-          <div className="pointer-events-auto absolute top-4 right-4">
-            <button
-              onClick={endNavigation}
-              className="bg-white shadow-lg px-4 py-2 rounded-lg text-sm font-semibold border border-gray-200"
-            >
-              ❌ End Navigation
-            </button>
-          </div>
-        )}
-
-        {!navigationMode && (
+        {isUI && (
           <div className="pointer-events-auto">
             <SearchPanel
               destination={destination}
@@ -63,17 +78,18 @@ export default function Home() {
               setRoutes={setRoutes}
               currentLocation={currentLocation}
               lastSearchRef={lastSearchRef}
+              onStartLocationResolved={setStartLocation}
             />
           </div>
         )}
 
-        {!navigationMode && (
+        {isUI && (
           <div className="pointer-events-auto">
             <Legend />
           </div>
         )}
 
-        {!navigationMode && (
+        {isUI && (
           <div className="pointer-events-auto">
             <RouteInfo
               routes={routes}
@@ -82,11 +98,39 @@ export default function Home() {
               onSelectRoute={(coords) => setSelectedRoute(coords)}
               setSegments={setSegments}
               setNavigationMode={setNavigationMode}
+              onPreviewRoute={handlePreviewRoute}
             />
           </div>
         )}
 
       </div>
+
+      {previewRoute && !navigationMode && (
+        <RoutePreviewSheet
+          route={previewRoute}
+          onStartRoute={handleStartNavigation}
+          onClose={() => setPreviewRoute(null)}
+        />
+      )}
+
+      {navigationMode && (
+        <NavigationHUD
+          position={currentLocation}
+          selectedRoute={selectedRoute}
+          estimatedTime={estimatedTime}
+          onEndNav={endNavigation}
+          onReport={() => setShowReportModal(true)}
+        />
+      )}
+
+      {showReportModal && (
+        <ReportModal
+          position={currentLocation}
+          routeId={activeRouteId}
+          onClose={() => setShowReportModal(false)}
+        />
+      )}
+
     </div>
   );
 }
