@@ -15,27 +15,36 @@ export default function SearchPanel({
   currentLocation, lastSearchRef,
   onStartLocationResolved,
 }) {
-
   const [startPlace, setStartPlace] = useState("");
   const [destPlace, setDestPlace] = useState("");
   const [startSuggestions, setStartSuggestions] = useState([]);
   const [destSuggestions, setDestSuggestions] = useState([]);
   const [destProximity, setDestProximity] = useState(null);
 
+  // ← KEY FIX: track whether user has manually set the start field
+  const userSetStart = useRef(false);
+
   const startDebounceRef = useRef(null);
   const destDebounceRef = useRef(null);
 
+  // Only auto-fill start from GPS if user hasn't manually typed anything
   useEffect(() => {
     const load = async () => {
       if (!currentLocation?.length) return;
+      if (userSetStart.current) return; // ← Don't overwrite user's choice
       const [lat, lng] = currentLocation;
-      try { setStartPlace(await reverseGeocode(lat, lng)); }
-      catch { setStartPlace(""); }
+      try {
+        const placeName = await reverseGeocode(lat, lng);
+        setStartPlace(placeName);
+      } catch {
+        setStartPlace("");
+      }
     };
     load();
   }, [currentLocation]);
 
   const handleStartChange = (value) => {
+    userSetStart.current = true; // ← Mark as user-controlled
     setStartPlace(value);
     if (startDebounceRef.current) clearTimeout(startDebounceRef.current);
     startDebounceRef.current = setTimeout(async () => {
@@ -43,8 +52,16 @@ export default function SearchPanel({
       try {
         const [lat, lng] = currentLocation || [];
         setStartSuggestions(await getPlaceSuggestions(value, lat, lng, true));
-      } catch { setStartSuggestions([]); }
+      } catch {
+        setStartSuggestions([]);
+      }
     }, 300);
+  };
+
+  const handleStartClear = () => {
+    userSetStart.current = false; // ← Allow GPS to fill again after clearing
+    setStartPlace("");
+    setStartSuggestions([]);
   };
 
   const handleDestChange = (value) => {
@@ -55,7 +72,9 @@ export default function SearchPanel({
       try {
         const [lat, lng] = destProximity || [];
         setDestSuggestions(await getPlaceSuggestions(value, lat, lng, false));
-      } catch { setDestSuggestions([]); }
+      } catch {
+        setDestSuggestions([]);
+      }
     }, 300);
   };
 
@@ -66,9 +85,7 @@ export default function SearchPanel({
       const startCoords = await geocodePlace(startPlace, lat, lng);
       const destCoords  = await geocodePlace(destPlace, lat, lng);
 
-      // ← Tell page.js the resolved start coords
       if (onStartLocationResolved) onStartLocationResolved(startCoords);
-
       if (lastSearchRef) lastSearchRef.current = { startCoords, destCoords };
 
       const timeZone = getAutoZone();
@@ -93,20 +110,32 @@ export default function SearchPanel({
       <div className="relative mb-3">
         <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-white">
           <span className="text-pink-500">📍</span>
-          <input type="text" placeholder="Enter start place" value={startPlace}
+          <input
+            type="text"
+            placeholder="Enter start place"
+            value={startPlace}
             onChange={(e) => handleStartChange(e.target.value)}
-            className="w-full outline-none text-sm" />
+            className="w-full outline-none text-sm"
+          />
           {startPlace && (
-            <button onClick={() => { setStartPlace(""); setStartSuggestions([]); }}
-              className="text-gray-400 hover:text-gray-600">✕</button>
+            <button
+              onClick={handleStartClear}
+              className="text-gray-400 hover:text-gray-600"
+            >✕</button>
           )}
         </div>
         {startSuggestions.length > 0 && (
           <div className="absolute top-full left-0 w-full bg-white border rounded-lg shadow-md mt-1 max-h-48 overflow-y-auto z-50">
             {startSuggestions.map((s, i) => (
-              <div key={i}
-                onClick={() => { setStartPlace(s); setStartSuggestions([]); }}
-                className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer">{s}</div>
+              <div
+                key={i}
+                onClick={() => {
+                  userSetStart.current = true;
+                  setStartPlace(s);
+                  setStartSuggestions([]);
+                }}
+                className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+              >{s}</div>
             ))}
           </div>
         )}
@@ -116,30 +145,41 @@ export default function SearchPanel({
       <div className="relative mb-3">
         <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-white">
           <span className="text-red-500">🎯</span>
-          <input type="text" placeholder="Enter destination place" value={destPlace}
+          <input
+            type="text"
+            placeholder="Enter destination place"
+            value={destPlace}
             onChange={(e) => handleDestChange(e.target.value)}
-            className="w-full outline-none text-sm" />
+            className="w-full outline-none text-sm"
+          />
           {destPlace && (
-            <button onClick={() => { setDestPlace(""); setDestSuggestions([]); setDestProximity(null); }}
-              className="text-gray-400 hover:text-gray-600">✕</button>
+            <button
+              onClick={() => { setDestPlace(""); setDestSuggestions([]); setDestProximity(null); }}
+              className="text-gray-400 hover:text-gray-600"
+            >✕</button>
           )}
         </div>
         {destSuggestions.length > 0 && (
           <div className="absolute top-full left-0 w-full bg-white border rounded-lg shadow-md mt-1 max-h-48 overflow-y-auto z-50">
             {destSuggestions.map((s, i) => (
-              <div key={i}
+              <div
+                key={i}
                 onClick={async () => {
-                  setDestPlace(s); setDestSuggestions([]);
+                  setDestPlace(s);
+                  setDestSuggestions([]);
                   try { setDestProximity(await geocodePlace(s)); } catch {}
                 }}
-                className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer">{s}</div>
+                className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+              >{s}</div>
             ))}
           </div>
         )}
       </div>
 
-      <button onClick={handleFindRoute}
-        className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition">
+      <button
+        onClick={handleFindRoute}
+        className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition"
+      >
         Find Safest Route
       </button>
     </div>

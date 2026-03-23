@@ -11,7 +11,6 @@ import NavigationHUD from "../components/NavigationHUD";
 import ReportModal from "../components/ReportModal";
 
 export default function Home() {
-
   const [currentLocation, setCurrentLocation] = useState(null);
   const [destination, setDestination] = useState("");
   const [routes, setRoutes] = useState([]);
@@ -24,6 +23,9 @@ export default function Home() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [startLocation, setStartLocation] = useState(null);
 
+  // ← Store active route's safety data to pass to NavigationHUD side panel
+  const [activeRouteSafety, setActiveRouteSafety] = useState(null);
+
   const lastSearchRef = useRef(null);
 
   const endNavigation = () => {
@@ -32,6 +34,7 @@ export default function Home() {
     setSegments([]);
     setActiveRouteId(null);
     setPreviewRoute(null);
+    setActiveRouteSafety(null);
   };
 
   const handlePreviewRoute = (route) => {
@@ -45,6 +48,15 @@ export default function Home() {
     setActiveRouteId(route.id);
     setEstimatedTime(route.time);
     setNavigationMode(true);
+    // ← Capture safety info for the HUD side panel
+    setActiveRouteSafety({
+      safetyScore: route.safetyScore,
+      lighting:    route.lighting,
+      crowd:       route.crowd,
+      police:      route.police,
+      hospitals:   route.hospitals,
+      riskZones:   route.riskZones,
+    });
   };
 
   const isUI = !navigationMode && !previewRoute;
@@ -52,6 +64,11 @@ export default function Home() {
   return (
     <div className="relative w-screen h-screen overflow-hidden">
 
+      {/*
+        MapView is absolutely positioned.
+        In navigationMode it shrinks to the left (right: 320px) via its own style.
+        Outside navigationMode it fills the full screen.
+      */}
       <div className="absolute inset-0 z-0" style={{ touchAction: "auto" }}>
         <MapView
           setCurrentLocation={setCurrentLocation}
@@ -62,6 +79,7 @@ export default function Home() {
         />
       </div>
 
+      {/* UI overlays */}
       <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 50 }}>
 
         {isUI && (
@@ -105,6 +123,7 @@ export default function Home() {
 
       </div>
 
+      {/* Route preview sheet (bottom sheet before starting navigation) */}
       {previewRoute && !navigationMode && (
         <RoutePreviewSheet
           route={previewRoute}
@@ -113,6 +132,12 @@ export default function Home() {
         />
       )}
 
+      {/*
+        NavigationHUD renders a fixed overlay:
+        - Left side is transparent (map shows through)
+        - Right side (320px) is the dark navigation panel
+        MapView has already shifted right: 320px so nothing overlaps.
+      */}
       {navigationMode && (
         <NavigationHUD
           position={currentLocation}
@@ -120,6 +145,13 @@ export default function Home() {
           estimatedTime={estimatedTime}
           onEndNav={endNavigation}
           onReport={() => setShowReportModal(true)}
+          // Safety data for the right panel
+          safetyScore={activeRouteSafety?.safetyScore}
+          lighting={activeRouteSafety?.lighting}
+          crowd={activeRouteSafety?.crowd}
+          police={activeRouteSafety?.police}
+          hospitals={activeRouteSafety?.hospitals}
+          riskZones={activeRouteSafety?.riskZones}
         />
       )}
 

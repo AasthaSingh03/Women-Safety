@@ -174,7 +174,7 @@ export default function MapView({
   selectedRoute = [],
   segments = [],
   navigationMode = false,
-  startLocation = null,  // ← entered start coords
+  startLocation = null,
 }) {
   const [position, setPosition] = useState(null);
   const [autoFollow, setAutoFollow] = useState(false);
@@ -234,7 +234,6 @@ export default function MapView({
   const handleRecenter = () => {
     setAutoFollow(true);
     if (mapRef.current) {
-      // Priority: entered start → route start → GPS
       const target = startLocation
         || (selectedRoute.length > 0 ? selectedRoute[0] : position);
       mapRef.current.flyTo(target, 16, { duration: 1 });
@@ -242,8 +241,24 @@ export default function MapView({
   };
 
   return (
-    <div className="relative w-full h-full" style={{ touchAction: "auto" }}>
-
+    /*
+     * KEY FIX: In navigationMode, constrain the map to the LEFT portion of the screen
+     * by applying `right: 320px`. The NavigationHUD panel occupies the right 320px.
+     * Outside navigationMode, map fills the full screen as before.
+     */
+    <div
+      className="relative h-full"
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        bottom: 0,
+        right: navigationMode ? "320px" : "0px",
+        transition: "right 0.3s ease",
+        touchAction: "auto",
+      }}
+    >
+      {/* Recenter button — only shown in nav mode when user has panned away */}
       {!autoFollow && navigationMode && (
         <button
           onClick={handleRecenter}
@@ -302,7 +317,6 @@ export default function MapView({
             pathOptions={{ color: segmentColor(seg.risk), weight: 6, opacity: 0.9 }}
           />
         ))}
-
       </MapContainer>
     </div>
   );
