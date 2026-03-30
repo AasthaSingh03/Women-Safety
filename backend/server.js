@@ -13,7 +13,6 @@ import { importInfrastructure } from "./scripts/importInfrastructure.js";
 
 const app = express();
 
-// ✅ Explicit CORS config (replaces the old app.use(cors()))
 const allowedOrigins = [
   "https://women-safety-frontend.onrender.com",
   "http://localhost:3000",
@@ -32,8 +31,13 @@ app.use(cors({
   credentials: true,
 }));
 
-// ✅ Handle preflight OPTIONS requests for all routes
-app.options("*", cors());
+app.options("*", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.sendStatus(204);
+});
 
 app.use(express.json());
 
@@ -47,7 +51,6 @@ mongoose.connect(process.env.MONGO_URI)
 
     console.log("MongoDB Connected Successfully");
 
-    // Import infrastructure on startup
     try {
       console.log("Importing infrastructure...");
       await importInfrastructure();
@@ -55,7 +58,6 @@ mongoose.connect(process.env.MONGO_URI)
       console.log("Infrastructure import failed:", err.message);
     }
 
-    // Import crime news on startup
     try {
       console.log("Importing crime news...");
       await importCrimeNews();
@@ -63,7 +65,6 @@ mongoose.connect(process.env.MONGO_URI)
       console.log("Crime news import failed:", err.message);
     }
 
-    // Schedule crime news every 6 hours
     cron.schedule("0 */6 * * *", async () => {
       console.log("Scheduled crime import running...");
       try {
