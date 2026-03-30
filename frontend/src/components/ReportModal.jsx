@@ -24,7 +24,7 @@ export default function ReportModal({ position, routeId, onClose, onSubmit }) {
   const handleSubmit = async () => {
     if (!selected.length) { alert("Select at least one issue"); return; }
     try {
-      await fetch("http://localhost:5000/api/reports", {
+      await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
