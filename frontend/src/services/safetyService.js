@@ -1,6 +1,6 @@
 export const analyzeRoute = async (startCoords, destCoords) => {
-
-  const res = await fetch("http://localhost:3000/api/route/analyze", {
+  const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+  const res = await fetch(`${BASE_URL}/api/route/analyze`, {
 
     method: "POST",
 

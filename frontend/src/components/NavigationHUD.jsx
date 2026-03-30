@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 const getDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371e3;
   const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
@@ -77,7 +77,7 @@ export default function NavigationHUD({
     // Community reports
     const checkReports = async () => {
       try {
-        const res = await fetch(`http://localhost:5000/api/reports/nearby?lat=${position[0]}&lon=${position[1]}&radius=300`);
+        const res = await fetch(`${BASE_URL}/api/reports/nearby?lat=${position[0]}&lon=${position[1]}`);
         const data = await res.json();
         setHasCommunityWarning(data.reports?.length > 0);
       } catch {}

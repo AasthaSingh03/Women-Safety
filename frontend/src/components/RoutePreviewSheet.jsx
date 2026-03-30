@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 export default function RoutePreviewSheet({ route, onStartRoute, onClose, mapRef }) {
   const [starting, setStarting] = useState(false);
 
@@ -41,7 +41,7 @@ export default function RoutePreviewSheet({ route, onStartRoute, onClose, mapRef
   const handleStart = async () => {
     setStarting(true);
     try {
-      const res = await fetch("http://localhost:5000/api/route/segments", {
+      const res = await fetch(`${BASE_URL}/api/route/segments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coords: route.coords, timeZone: route.timeZone || "day" }),

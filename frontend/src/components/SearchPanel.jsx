@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { geocodePlace, reverseGeocode, getPlaceSuggestions } from "../services/api";
-
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 const getAutoZone = () => {
   const h = new Date().getHours();
   if (h >= 23 || h < 6) return "night";
@@ -89,7 +89,7 @@ export default function SearchPanel({
       if (lastSearchRef) lastSearchRef.current = { startCoords, destCoords };
 
       const timeZone = getAutoZone();
-      const res = await fetch("http://localhost:5000/api/route/analyze", {
+      const res = await fetch(`${BASE_URL}/api/route/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ start: startCoords, destination: destCoords, timeZone }),
