@@ -31,7 +31,8 @@ app.use(cors({
   credentials: true,
 }));
 
-app.options("*", (req, res) => {
+// ✅ Fixed: use regex instead of "*" (Node v22 + Express 4 compatibility)
+app.options(/.*/, (req, res) => {
   res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
